@@ -50,13 +50,13 @@
     out))
 
 (defun lore-normalize-scores (results)
-  "Normalize scores to 0..1; if absent, assign by rank."
+  "Normalize scores to 0..1; return RESULTS with updated scores."
   (let* ((vals (mapcar (lambda (r) (or (lore-result-score r) 0.0)) results))
          (mx (or (apply #'max 0.0 vals) 1.0)))
-    (cl-loop for r in results
-             for s = (or (lore-result-score r) 0.0)
-             collect (setf (lore-result-score r)
-                           (if (> mx 0.0) (/ s mx) 0.0)))))
+    (dolist (r results results)
+      (let ((s (or (lore-result-score r) 0.0)))
+        (setf (lore-result-score r)
+              (if (> mx 0.0) (/ s mx) 0.0))))))
 
 (defun lore-rank (results &optional _secondary)
   "Sort RESULTS by score desc, then title."
