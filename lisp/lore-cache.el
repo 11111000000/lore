@@ -7,8 +7,15 @@
 
 (require 'cl-lib)
 
-(defvar lore-cache-ttl 60.0
-  "Default TTL for Lore cache entries in seconds.")
+(defcustom lore-cache-enabled t
+  "When non-nil, enable Lore cache for request results."
+  :type 'boolean
+  :group 'lore)
+
+(defcustom lore-cache-ttl 60.0
+  "Default TTL for Lore cache entries in seconds."
+  :type 'number
+  :group 'lore)
 
 (defvar lore--cache (make-hash-table :test 'equal))
 (defvar lore--cache-time (make-hash-table :test 'equal))

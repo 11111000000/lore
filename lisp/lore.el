@@ -5,6 +5,9 @@
 
 ;;; Code:
 
+(eval-and-compile
+  (add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name))))
+
 (require 'lore-log)
 (require 'lore-events)
 (require 'lore-model)
@@ -15,6 +18,8 @@
 
 ;; Built-ins
 (require 'lore-getter-elisp)
+(require 'lore-getter-grep)
+(require 'lore-getter-org)
 
 ;;;###autoload
 (defun lore-version ()
