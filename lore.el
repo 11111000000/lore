@@ -1,0 +1,25 @@
+;;; lore.el --- Lore umbrella -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Umbrella module: load core/view and built-in getters.
+
+;;; Code:
+
+(require 'lore-log)
+(require 'lore-events)
+(require 'lore-model)
+(require 'lore-cache)
+(require 'lore-core)
+(require 'lore-render)
+(require 'lore-view)
+
+;; Built-ins
+(require 'lore-getter-elisp)
+
+;;;###autoload
+(defun lore-version ()
+  "Return Lore version string."
+  "0.1.0")
+
+(provide 'lore)
+;;; lore.el ends here
