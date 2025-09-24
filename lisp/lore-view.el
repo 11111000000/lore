@@ -21,6 +21,10 @@
   (let ((m (make-sparse-keymap)))
     (define-key m (kbd "q") #'quit-window)
     (define-key m (kbd "g") #'lore-refresh)
+    (define-key m (kbd "r") #'lore-refine)
+    (define-key m (kbd "t") #'lore-transient)
+    (define-key m (kbd "a") #'lore-export-to-context)
+    (define-key m (kbd "c") #'lore-copy-result)
     (define-key m (kbd "RET") #'lore-open)
     (define-key m (kbd "v") #'lore-preview)
     (define-key m (kbd "n") #'next-line)
@@ -110,7 +114,10 @@
                                                          (if cached-p " (cached)" ""))))
                                        (lore-render-apply-to-buffer
                                         buf
-                                        (lore-render-lines payload hdr)))))))))))
+                                        (append
+                                         (lore-render-lines payload hdr)
+                                         (list ""
+                                               "q quit  g refresh  r refine  t transient  a export  c copy  RET open  v preview  n/p move"))))))))))))
       (with-current-buffer buf
         (setq lore--last-token token))
       ;; Start spinner only if token is non-nil (not cached)
@@ -125,6 +132,15 @@
       (user-error "No previous Lore request")
     (let ((query (alist-get :query lore--last-request)))
       (lore-ask query))))
+
+(defun lore-refine ()
+  "Refine last Lore request by editing the query string."
+  (interactive)
+  (if (not lore--last-request)
+      (user-error "No previous Lore request")
+    (let* ((old (alist-get :query lore--last-request))
+           (q (read-string "Refine Lore: " old)))
+      (lore-ask q))))
 
 (defun lore-open ()
   "Open current result."
@@ -144,18 +160,44 @@
          (find-file p)
          (let* ((m (lore-result-meta r))
                 (ln (plist-get m :line))
-                (col (plist-get m :col)))
+                (col (plist-get m :col))
+                (pos (plist-get m :pos)))
            (cond
             ((and (integerp ln) (> ln 0))
              (goto-char (point-min))
              (forward-line (1- ln))
              (when (and (integerp col) (> col 0))
                (move-to-column (1- col))))
+            ((and (integerp pos) (> pos 0))
+             (goto-char pos))
             ((and (lore-result-beg r) (integerp (lore-result-beg r)))
              (goto-char (lore-result-beg r)))))))
       ('url
        (when-let ((u (lore-result-url r)))
          (browse-url u)))
+      ('doc
+       (pcase (lore-result-source r)
+         ('info
+          (let* ((m (lore-result-meta r))
+                 (file (plist-get m :file))
+                 (node (plist-get m :node)))
+            (if (and file node)
+                (info (format "(%s) %s" file node))
+              (message "Info node not specified"))))
+         ('man
+          (let* ((m (lore-result-meta r))
+                 (page (or (plist-get m :page)
+                           (let ((name (plist-get m :name))
+                                 (sec (plist-get m :section)))
+                             (if (and name sec) (format "%s(%s)" name sec) name)))))
+            (if page
+                (man page)
+              (message "Man page not specified"))))
+         (_
+          (with-help-window "*Lore Doc*"
+            (princ (or (lore-result-content r)
+                       (lore-result-snippet r)
+                       (lore-result-title r)))))))
       (_ (message "No opener for type: %S" (lore-result-type r))))))
 
 (defun lore-preview ()
@@ -167,6 +209,67 @@
       (princ (or (lore-result-content r)
                  (lore-result-snippet r)
                  (lore-result-title r))))))
+
+(defun lore-view--collect-selected-results ()
+  "Collect Lore results from current line or active region in view buffer."
+  (let ((results '()))
+    (save-excursion
+      (if (use-region-p)
+          (let ((beg (region-beginning))
+                (end (region-end)))
+            (goto-char beg)
+            (beginning-of-line)
+            (while (< (point) end)
+              (when-let ((r (get-text-property (point) 'lore-result)))
+                (push r results))
+              (forward-line 1)))
+        (beginning-of-line)
+        (when-let ((r (get-text-property (point) 'lore-result)))
+          (push r results))))
+    (nreverse results)))
+
+;;;###autoload
+(defun lore-export-to-context ()
+  "Export selected results to Context Navigator (if available).
+If a region is active, export all results in the region; otherwise, current line."
+  (interactive)
+  (let ((results (lore-view--collect-selected-results)))
+    (if (null results)
+        (user-error "No Lore results selected")
+      (if (require 'lore-integration-context nil t)
+          (if (lore-export-to-context results)
+              (message "Exported %d item(s) to Context Navigator" (length results))
+            (message "Context Navigator rejected items"))
+        (message "Context Navigator not available; install it to export")))))
+
+(defun lore-copy-result ()
+  "Copy current result's useful reference to `kill-ring'."
+  (interactive)
+  (let ((r (lore--current-result)))
+    (unless r (user-error "No result at point"))
+    (let* ((kind (lore-result-type r))
+           (meta (lore-result-meta r))
+           (text
+            (pcase kind
+              ('url (or (lore-result-url r) (lore-result-title r)))
+              ('file
+               (or (lore-result-path r)
+                   (lore-result-title r)))
+              ('symbol
+               (format "%s" (or (plist-get meta :name)
+                                (lore-result-title r))))
+              ('doc
+               (pcase (lore-result-source r)
+                 ('info (let ((file (plist-get meta :file))
+                              (node (plist-get meta :node)))
+                          (if (and file node) (format "(%s) %s" file node)
+                            (lore-result-title r))))
+                 ('man (or (plist-get meta :page) (lore-result-title r)))
+                 (_ (lore-result-title r))))
+              (_ (or (lore-result-title r)
+                     (lore-result-snippet r))))))
+      (kill-new text)
+      (message "Copied: %s" text))))
 
 (provide 'lore-view)
 ;;; lore-view.el ends here

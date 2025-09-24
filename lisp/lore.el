@@ -15,11 +15,15 @@
 (require 'lore-core)
 (require 'lore-render)
 (require 'lore-view)
+(require 'lore-transient nil t)
+(require 'lore-integration-context nil t)
 
 ;; Built-ins
 (require 'lore-getter-elisp)
 (require 'lore-getter-grep)
 (require 'lore-getter-org)
+(require 'lore-getter-info)
+(require 'lore-getter-man)
 
 ;;;###autoload
 (defun lore-version ()

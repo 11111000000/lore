@@ -41,6 +41,12 @@
   :type '(repeat string)
   :group 'lore-getter-grep)
 
+(defcustom lore-grep-ignore-globs
+  '("!node_modules/*" "!.git/*" "!.cache/*")
+  "Glob patterns to ignore in search. Each entry is passed as \"--glob PATTERN\"."
+  :type '(repeat string)
+  :group 'lore-getter-grep)
+
 (defcustom lore-grep-max-count-factor 5
   "Factor to multiply topk for --max-count to avoid dropping too early."
   :type 'integer
@@ -68,8 +74,10 @@
           (cond
            ((null keywords) "")
            ((= (length keywords) 1) (car keywords))
-           (t (mapconcat #'identity keywords ".*")))))
+           (t (mapconcat #'identity keywords ".*"))))
+         (glob-args (cl-mapcan (lambda (g) (list "--glob" g)) lore-grep-ignore-globs)))
     (append lore-grep-extra-args
+            glob-args
             (when topk
               (list "--max-count" (number-to-string (max 1 (* lore-grep-max-count-factor topk)))))
             (list pattern))))
@@ -220,7 +228,7 @@ Returns list of results (sync) or plist (:async t :token TOKEN :cancel FN)."
     (lore-register-getter
      'grep
      :capabilities '(:match (keyword regex)
-                            :scope (project)
+                            :scope (project global)
                             :kinds (file code)
                             :domains (project))
      :fn #'lore-getter-grep-run

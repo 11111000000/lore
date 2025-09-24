@@ -7,6 +7,15 @@
 
 (require 'lore-model)
 
+(defgroup lore-render nil
+  "Rendering options for Lore."
+  :group 'lore)
+
+(defcustom lore-render-snippet-width 100
+  "Max width of snippet column in Lore results."
+  :type 'integer
+  :group 'lore-render)
+
 (defun lore--truncate (s n)
   (if (and s (> (length s) n))
       (concat (substring s 0 (max 0 (- n 1))) "…")
@@ -17,7 +26,7 @@
   (let ((lines (when header (list header ""))))
     (dolist (r results (or lines '()))
       (let* ((title (or (lore-result-title r) ""))
-             (snip (lore--truncate (or (lore-result-snippet r) "") 120))
+             (snip (lore--truncate (or (lore-result-snippet r) "") lore-render-snippet-width))
              (src (or (symbol-name (lore-result-source r)) ""))
              (score (format "%.2f" (or (lore-result-score r) 0.0)))
              (line (format "%s — %s  [%s %s]" title snip src score)))

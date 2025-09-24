@@ -121,12 +121,18 @@
 ;; Planning
 
 (defun lore--eligible-getter-p (getter req)
-  "Simple eligibility: if :targets non-empty, match :domains."
+  "Decide if GETTER is eligible for REQ based on :targets and :scope."
   (let* ((caps (plist-get getter :capabilities))
          (domains (plist-get caps :domains))
-         (targets (alist-get :targets req)))
-    (if (null targets) t
-      (cl-some (lambda (tgt) (memq tgt domains)) targets))))
+         (scopes (plist-get caps :scope))
+         (targets (alist-get :targets req))
+         (scope   (alist-get :scope req)))
+    (and
+     ;; Scope match if declared
+     (or (null scopes) (memq scope scopes))
+     ;; Domains match if targets provided
+     (or (null targets)
+         (and domains (cl-some (lambda (tgt) (memq tgt domains)) targets))))))
 
 (defun lore-plan (request)
   "Build plan for REQUEST (alist)."
@@ -208,6 +214,7 @@ If a cached result is available, it is returned immediately and no token is crea
         (cl-return-from lore-run-async nil)))
     (let* ((token (lore--gen-token))
            (calls (plist-get plan :getters))
+           (start (float-time))
            (state (list :token token
                         :request request
                         :acc nil
@@ -236,45 +243,69 @@ If a cached result is available, it is returned immediately and no token is crea
                  (when callback (funcall callback :partial res)))))
            (finalize!
              ()
-             (let* ((res (or (plist-get state :acc) '())))
+             (let* ((res (or (plist-get state :acc) '()))
+                    (dt  (- (float-time) start)))
                (remhash token lore--active-tasks)
                (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
                  (lore-cache-put key res lore-cache-ttl)
                  (lore-log-info "cache store (async) %s (%d)" key (length res)))
+               (lore-log-info "lore-run-async done in %.3fs (%d results)" dt (length res))
                (lore-events-publish :lore-done token res)
                (when callback (funcall callback :done res)))))
-        ;; Launch getters
-        (dolist (c calls)
-          (let* ((fn (plist-get c :fn))
-                 (args (plist-get c :args))
-                 (emit (lambda (batch) (emit! batch)))
-                 (done (lambda (&optional err)
-                         (when err
-                           (lore-events-publish :lore-error token
-                                                (list :getter (plist-get c :name)
-                                                      :error err)))
-                         (let ((p (max 0 (1- (plist-get state :pending)))))
-                           (plist-put state :pending p)
-                           (when (zerop p)
-                             (finalize!))))))
-            (condition-case err
-                (let ((out (apply fn (append args (list :emit emit :done done)))))
-                  (cond
-                   ;; Async getter: register cancel and pending
-                   ((and (listp out) (plist-get out :async))
-                    (plist-put state :pending (1+ (plist-get state :pending)))
-                    (let ((cancel (plist-get out :cancel)))
-                      (when cancel
-                        (plist-put state :cancels (cons cancel (plist-get state :cancels))))))
-                   ;; Sync list: aggregate immediately
-                   ((listp out)
-                    (emit! out))))
-              (error
-               (lore-log-warn "getter %S error: %S" (plist-get c :name) err)))))
+        ;; Launch getters with parallel limit
+        (let* ((queue (copy-sequence calls))
+               (limit (max 1 (or lore-parallel-limit 1))))
+          (plist-put state :pending 0)
+          (plist-put state :queue queue)
+          (cl-labels
+              ((start-call!
+                 (call)
+                 (let* ((fn   (plist-get call :fn))
+                        (args (plist-get call :args))
+                        (emit (lambda (batch) (emit! batch)))
+                        (done (lambda (&optional err)
+                                (when err
+                                  (lore-events-publish :lore-error token
+                                                       (list :getter (plist-get call :name)
+                                                             :error err)))
+                                (let ((p (max 0 (1- (plist-get state :pending)))))
+                                  (plist-put state :pending p))
+                                ;; Start next from queue if any
+                                (when (plist-get state :queue)
+                                  (start-next!))
+                                ;; If nothing pending and queue empty, finalize
+                                (when (and (zerop (plist-get state :pending))
+                                           (null (plist-get state :queue)))
+                                  (finalize!)))))
+                   (condition-case err
+                       (let ((out (apply fn (append args (list :emit emit :done done)))))
+                         (cond
+                          ;; Async getter: register cancel and pending
+                          ((and (listp out) (plist-get out :async))
+                           (plist-put state :pending (1+ (plist-get state :pending)))
+                           (let ((cancel (plist-get out :cancel)))
+                             (when cancel
+                               (plist-put state :cancels (cons cancel (plist-get state :cancels))))))
+                          ;; Sync list: aggregate immediately
+                          ((listp out)
+                           (emit! out))))
+                     (error
+                      (lore-log-warn "getter %S error: %S" (plist-get call :name) err)))))
+               (start-next!
+                 ()
+                 (let ((q (plist-get state :queue)))
+                   (when q
+                     (let ((next (car q)))
+                       (plist-put state :queue (cdr q))
+                       (start-call! next))))))
+            ;; Kick off up to LIMIT calls
+            (dotimes (_i (min limit (length queue)))
+              (start-next!))))
         ;; Save state
         (puthash token state lore--active-tasks)
-        ;; If no async pending and nothing emitted yet, finalize immediately
-        (when (zerop (plist-put state :pending (plist-get state :pending)))
+        ;; If no async pending and queue empty and nothing emitted yet, finalize immediately
+        (when (and (zerop (plist-get state :pending))
+                   (null (plist-get state :queue)))
           (finalize!))
         token))))
 
