@@ -1,4 +1,8 @@
 ;;; lore-model.el --- Data model for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: data, model, tools
 
 ;;; Commentary:
 ;; lore-result struct and pure helpers: key, uniq, normalize, rank.

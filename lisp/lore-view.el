@@ -1,4 +1,8 @@
 ;;; lore-view.el --- Minimal UI for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: ui, interface, tools
 
 ;;; Commentary:
 ;; Provides M-x lore-ask to query and render results, with simple actions.

@@ -1,4 +1,9 @@
 ;;; lore-getter-web-devdocs.el --- DevDocs web getter for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: devdocs, web, docs, tools
 
 ;;; Commentary:
 ;; Asynchronous web getter (optional, disabled by default).

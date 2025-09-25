@@ -1,4 +1,8 @@
 ;;; lore-web.el --- Common helpers for web getters -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: web, privacy, tools
 
 ;;; Commentary:
 ;; Shared privacy confirmation for web getters (MDN/DevDocs/etc.).

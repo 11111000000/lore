@@ -1,4 +1,8 @@
 ;;; lore-integration-context.el --- Context Navigator integration -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: context, integration, tools
 
 ;;; Commentary:
 ;; Soft integration with Context Navigator. If it's not installed, all commands

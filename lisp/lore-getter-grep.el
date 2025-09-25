@@ -1,9 +1,9 @@
 ;;; lore-getter-grep.el --- Ripgrep-based getter for Lore.el  -*- lexical-binding: t; -*-
-;; Author: Lore.el
-;; Keywords: convenience, search, tools
-;; Package-Requires: ((emacs "27.1"))
-;; URL: https://example.invalid/lore
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
 ;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: search, tools, convenience
 
 ;;; Commentary:
 ;; Asynchronous project grep getter for Lore.el.

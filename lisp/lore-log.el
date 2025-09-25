@@ -1,8 +1,8 @@
 ;;; lore-log.el --- Lightweight logging for Lore -*- lexical-binding: t; -*-
-
-;; Copyright (C) 2025
-;; Author: az
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
 ;; SPDX-License-Identifier: MIT
+;; Keywords: logging, tools, debugging
 
 ;;; Commentary:
 ;; Minimal logger with leveled output. Formatting deferred unless enabled.

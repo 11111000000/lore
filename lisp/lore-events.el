@@ -1,4 +1,8 @@
 ;;; lore-events.el --- Simple event bus for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: events, bus, tools
 
 ;;; Commentary:
 ;; Tiny pub/sub for internal decoupling. Debounce is minimal.

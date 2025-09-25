@@ -1,9 +1,9 @@
 ;;; lore-getter-man.el --- man -k getter for Lore.el  -*- lexical-binding: t; -*-
-;; Author: Lore.el
-;; Keywords: unix, man, docs
-;; Package-Requires: ((emacs "27.1"))
-;; URL: https://example.invalid/lore
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
 ;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: unix, man, docs, tools
 
 ;;; Commentary:
 ;; Asynchronous getter using `man -k' (apropos) to find manpages.

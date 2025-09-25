@@ -1,9 +1,9 @@
 ;;; lore-getter-org.el --- Org headlines getter for Lore.el  -*- lexical-binding: t; -*-
-;; Author: Lore.el
-;; Keywords: convenience, outlines
-;; Package-Requires: ((emacs "27.1") (org "9.1"))
-;; URL: https://example.invalid/lore
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
 ;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1") (org "9.1"))
+;; Keywords: outlines, convenience, org
 
 ;;; Commentary:
 ;; Synchronous getter that scans org files under configured roots and returns

@@ -1,4 +1,9 @@
 ;;; lore-getter-elisp.el --- Elisp doc/symbol getter for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: elisp, docs, convenience
 
 ;;; Commentary:
 ;; Synchronous getter using apropos to find symbols and docstrings.

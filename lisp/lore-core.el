@@ -1,4 +1,9 @@
 ;;; lore-core.el --- Core pipeline for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: core, pipeline, tools
 
 ;;; Commentary:
 ;; Parse -> Plan -> Run -> Merge -> Rank; Getter registry.

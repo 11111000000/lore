@@ -1,4 +1,8 @@
 ;;; lore-cache.el --- Simple TTL cache for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: cache, ttl, tools
 
 ;;; Commentary:
 ;; In-memory cache with TTL seconds.

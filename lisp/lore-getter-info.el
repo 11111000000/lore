@@ -1,9 +1,9 @@
 ;;; lore-getter-info.el --- Info apropos getter for Lore.el  -*- lexical-binding: t; -*-
-;; Author: Lore.el
-;; Keywords: info, docs, tools
-;; Package-Requires: ((emacs "27.1"))
-;; URL: https://example.invalid/lore
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
 ;; SPDX-License-Identifier: MIT
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: info, docs, tools
 
 ;;; Commentary:
 ;; Asynchronous getter using external `info --apropos' to search Info manuals.

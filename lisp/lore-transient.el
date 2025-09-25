@@ -1,4 +1,8 @@
 ;;; lore-transient.el --- Transient UI for Lore -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Keywords: transient, ui, tools
 
 ;;; Commentary:
 ;; Quick controls for scope, top-K and domains, with immediate rerun.

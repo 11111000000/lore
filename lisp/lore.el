@@ -1,4 +1,10 @@
 ;;; lore.el --- Lore umbrella -*- lexical-binding: t; -*-
+;; Author: Peter Kosov <11111000000@email.com>
+;; URL: https://github.com/11111000000/lore.el
+;; SPDX-License-Identifier: MIT
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: tools, convenience, search, knowledge
 
 ;;; Commentary:
 ;; Umbrella module: load core/view and built-in getters.
@@ -34,4 +40,9 @@
   "0.1.0")
 
 (provide 'lore)
+
+;; Local Variables:
+;; coding: utf-8
+;; End:
+
 ;;; lore.el ends here
