@@ -1,140 +1,290 @@
-#+title: Lore.el — универсальный поиск и RAG в Emacs
-#+author: az
+#+title: Lore.el — universal retrieval and RAG for Emacs
+#+author: Peter Kosov <11111000000@email.com>
 #+startup: overview
 #+property: header-args :results none
 
-* Что это
-Lore.el — лёгкий модульный фреймворк для поиска и агрегирования знаний в Emacs:
-разобрать запрос → выбрать источники (геттеры) → извлечь → объединить → ранжировать → показать.
+* What is this
+Lore.el is a lightweight, modular framework for retrieval and knowledge aggregation inside Emacs:
+parse a query → select sources (getters) → fetch → merge → rank → display.
 
-- Минимальное ядро, чистые функции, расширяемость адаптерами
-- Поддержка синхронных и асинхронных источников, потоковые partial-результаты
-- Кэширование запросов (TTL), отмена, события
-- Интеграция с Context Navigator (мягкая)
-- Тесты (ERT) и reproducible-окружение через Nix flake
+- Minimal core, pure functions, extendable via adapters (getters)
+- Sync and async sources, streaming partial results with debounced rendering
+- Caching (TTL), cancellation, events and logging
+- Soft integration with Context Navigator (export results as context items)
+- Test suite (ERT) and reproducible dev environment via Nix flake
 
-Встроенные геттеры:
-- elisp — поиск символов Emacs Lisp (apropos)
-- project (rg) — ripgrep по проекту/каталогу
-- org — заголовки Org-файлов
-- info — GNU Info (через info --apropos)
+** Built-in getters:
+- elisp — Emacs Lisp symbols (apropos)
+- project (rg) — ripgrep across project/directory
+- org — Org headings (by keywords and tags)
+- info — GNU Info via external “info --apropos”
 - man — UNIX man -k (apropos)
-Опциональные веб-геттеры (выключены по умолчанию):
-- web-devdocs — поиск по DevDocs-подобному API (нужен прокси/endpoint)
-- web-mdn — поиск по MDN API (нужен endpoint)
 
-* Установка
-Использование straight/quelpa/MELPA — как обычного пакета Emacs Lisp.
-Для ручной установки:
-- положите каталог =lisp/= в =load-path=
-- загрузите зонтик:
+** Optional web getters (disabled by default):
+- web-devdocs — DevDocs-like API (endpoint/proxy required)
+- web-mdn — MDN search API (endpoint required)
+
+* Installation
+Using straight/quelpa/MELPA — install as a regular Emacs package.
+Manual install:
+- add =lisp/= to =load-path=
+- load the umbrella:
   #+begin_src elisp
   (require 'lore)
   #+end_src
 
-Для dev-окружения через Nix:
-- зайти в оболочку: =nix develop=
-- запустить тесты:
+Dev with Nix:
+- enter dev shell: =nix develop=
+- run tests:
   #+begin_src shell
   emacs -Q --batch -L lisp -l test/ert-runner.el
   #+end_src
-- или: =nix run .#tests=
+- or: =nix run .#tests=
 
-Зависимости:
-- ripgrep (rg) для project-геттера (опционально)
-- info/man в PATH для info/man-геттеров (опционально)
-- transient для меню (опционально)
-- Context Navigator для экспорта в контекст (опционально)
+Optional tools:
+- ripgrep (rg) for project getter
+- info/man in PATH for info/man getters
+- transient for the menu
+- Context Navigator for exporting results to a context
 
-* Быстрый старт
-- M-x =lore-ask= → введите запрос, например: =elisp: map=
-- В буфере “*lore/” появятся результаты. Асинхронные геттеры стримят результаты, спиннер крутится.
-- Мгновенная выдача с пометкой (cached) — когда запрос взят из кеша.
+* Quick start
+- M-x =lore-ask= → enter a query, for example: =elisp: map=
+- A buffer “*lore/” will show results. Async getters stream batches; a spinner shows progress.
+- If a cached response is used, the header shows “(cached)”.
 
-Примечание:
-- Если вы вызываете =lore-ask= из автозагрузки и видите 0 результатов для =man:/info:=, убедитесь, что в системе доступны =man=/=info= в PATH.
-- Начиная с этой версии, =lore-ask= автоматически подгружает встроенные геттеры (elisp/grep/org/info/man), однако по‑прежнему рекомендуется загрузить «зонтик» в init:
+Notes:
+- If you autoload =lore-ask= and see 0 items for =man:/info:=, ensure =man=/=info= are in PATH.
+- =lore-ask= autoloads built-in getters (elisp/grep/org/info/man); still recommended to require the umbrella in init:
   #+begin_src elisp
   (require 'lore)
   #+end_src
 
-Быстрые действия:
-- r: уточнить запрос (refine)
-- g: перезапустить (refresh)
-- t: меню transient (если установлен)
-- RET: открыть результат
-- v: предпросмотр
-- c: скопировать ссылку/идентификатор
-- i: вставить текст результата в другое окно/буфер
-- a: экспорт в Context Navigator (если доступен)
-- n/p: навигация, q: закрыть
+Quick actions in the result buffer:
+- r: refine query
+- g: refresh
+- t: transient menu (if installed)
+- RET: open result (file/url/info/man/symbol)
+- v: preview
+- c: copy link/identifier
+- i: insert result content/snippet into another window/buffer
+- a: export to Context Navigator (if available)
+- n/p: move, q: quit
 
-* Синтаксис запросов
-- Ключевые слова — обычные слова: ~json encode~
-- Домены (префиксы):
-  - ~elisp:~, ~project:~, ~org:~, ~info:~, ~man:~
-  - можно смешивать: ~elisp: map project: map~
-- Флаги:
-  - ~?k=N~ — верхний предел результатов (Top‑K)
-  - ~?scope=project|global~ — область поиска (по умолчанию project)
-- Теги (для org): ~#tag~ (фильтр по заголовкам)
-- Примеры:
+* Query syntax
+- Keywords — plain words: ~json encode~
+- Domains (prefixes): ~elisp:~, ~project:~, ~org:~, ~info:~, ~man:~
+  - you can mix: ~elisp: map project: map~
+- Flags:
+  - ~?k=N~ — Top-K limit
+  - ~?scope=project|global~ — scope (default: project)
+- Tags (for org): ~#tag~ (headline filter)
+- Examples:
   - ~elisp: completion table~
   - ~project: json encode ?k=100~
-  - ~org: план #work ?scope=global~
+  - ~org: plan #work ?scope=global~
   - ~info: buffers~
   - ~man: socket~
+- Inline domain flags are supported:
+  - ~man?scope=global: socket ?k=7~
+  - ~info?scope=global: Eglot~
 
-* Настройка
-Основные переменные (M-x customize-group RET lore):
-- lore-max-k — дефолтный Top‑K
+** Behavioral notes:
+- Keywords preserve case; case-sensitive backends benefit from this.
+- Scope controls eligibility (e.g. project-only getters), but global getters can still participate in project scope.
+
+* Configuration
+** Customize groups:
+- lore (core), lore-render (UI), lore-web (web getters)
+
+** Core:
+- lore-max-k — default Top-K
 - lore-default-scope — ~project|global~
-- lore-cache-enabled, lore-cache-ttl — кеш запросов
-- lore-parallel-limit — степень параллельности асинхронных геттеров
-- lore-source-weights — веса источников в ранжировании (alist: (elisp . 1.0) …)
+- lore-cache-enabled, lore-cache-ttl — TTL cache
+- lore-parallel-limit — parallelism for async getters
+- lore-source-weights — per-source weighting in ranking (alist: (elisp . 1.0) …)
 - lore-log-level — ~nil|error|warn|info|debug~
 
-Рендер (M-x customize-group RET lore-render):
+** Render (lore-render):
 - lore-render-snippet-width, lore-render-location-width
 - lore-render-highlight-keywords, lore-render-highlight-face
 
-Grep:
+** Grep (ripgrep getter):
 - lore-grep-program, lore-grep-extra-args
 - lore-grep-ignore-globs
 - lore-grep-max-count-factor
 
-Org:
+** Org:
 - lore-org-roots, lore-org-file-glob
 - lore-org-exclude-regexps
 - lore-org-max-file-size
 
-Info/Man:
+** Info/Man:
 - lore-info-program, lore-info-extra-args
 - lore-man-program, lore-man-extra-args
+- lore-info-force-locale/lore-man-force-locale — force C locale for stable parsing
 
-Web (опционально, по умолчанию выключены):
+** Web (optional; disabled by default):
 - lore-web-devdocs-enabled, lore-web-devdocs-endpoint, lore-web-devdocs-timeout, lore-web-devdocs-confirm-privacy
 - lore-web-mdn-enabled, lore-web-mdn-endpoint, lore-web-mdn-timeout, lore-web-mdn-confirm-privacy
 
-* Как это работает внутри
-Пайплайн:
-1) Парсинг (lore-parse-query): keywords/targets/flags/tags
-2) План (lore-plan): выбор геттеров по capabilities/targets/scope
-3) Запуск (lore-run / lore-run-async): асинхронные геттеры в параллели (с лимитом), partial-стриминг, отмена
-4) Слияние/дедуп/ранжирование (0..1, сортировка по score→title)
-5) Кеширование: по отпечатку запроса (TTL)
-6) Рендер (lore-render-lines): компактные строки с подсветкой keywords
-7) UI (lore-view): спиннер, дебаунс partial-рендера, действия по клавишам
+* How it works (pipeline)
+1) Parse (lore-parse-query): keywords/targets/flags/tags
+2) Plan (lore-plan): select getters by capabilities/targets/scope
+3) Run (lore-run / lore-run-async): async getters in parallel (with limit), streaming partial batches, cancellation
+4) Merge/dedup/rank (0..1 normalization, sort by score→title), source-weighting bias
+5) Cache: per request fingerprint (TTL)
+6) Render (lore-render-lines): compact propertized lines with keyword highlighting
+7) UI (lore-view): spinner, debounced partial re-render, key actions
 
-События:
+* Events (lore-events):
 - :lore-query-start, :lore-partial, :lore-done, :lore-error, :lore-cancel
 
-* Расширение: свой геттер
-Регистрация:
+* Logging (lore-log):
+- Robust in batch mode; avoids read-only /Messages/ issues
+
+* Extending: write your own getter
+Register your getter:
 #+begin_src elisp
 (lore-register-getter
  'my-source
  :capabilities '(:domains (web) :scope (global) :kinds (doc) :match (keyword))
  :fn #'my-getter-run
  :cost 0.7
- :batch-p t) ; если асинхронный и может выдавать partial
+ :batch-p t) ; if async and can emit partial batches
+#+end_src
+
+** Getter function contract (unified):
+- Signature: (cl-defun my-getter-run (&key request topk emit done))
+- Sync path: return list of lore-result (do not call emit/done)
+- Async path: return plist (:async t :token "…" :cancel #'fn), and use:
+  - (funcall emit (list res1 res2 …)) for batches
+  - (funcall done nil) at the end (or (funcall done "error-code") on errors)
+
+** Capabilities guide:
+- :domains — names used in query prefixes (elisp, project, org, info, man, web, …)
+- :scope — which request scopes the getter supports (project/global)
+- :kinds — result kinds produced (file, code, doc, url, symbol, selection)
+- :match — what matcher this getter supports (keyword/regex/symbol/at-point)
+
+** lore-result structure (constructor: lore-result-create):
+- :type 'file | 'buffer | 'selection | 'url | 'doc | 'symbol
+- :title string, :snippet string, :content string|nil
+- :path, :url, :buffer, :beg, :end (optional)
+- :score float, :source symbol (getter name), :meta plist
+- Stable key via (lore-result-key res) is used for deduplication
+
+** Getters included
+- Elisp (lore-getter-elisp): apropos symbols; sync; source 'elisp
+- Grep (lore-getter-grep): ripgrep process; async streaming; type 'file with :line/:col
+- Org (lore-getter-org): headlines under configured roots; sync; supports #tag filtering
+- Info (lore-getter-info): external “info --apropos”; async; robust parsing with C locale
+- Man (lore-getter-man): “man -k” apropos; async; robust parsing with C locale
+- Web—DevDocs/MDN (optional): async; disabled by default; obey privacy confirmation
+
+* UI details
+** Result buffer:
+“*lore/” with =lore-view-mode=. Lines carry result objects via text-properties:
+- 'lore-result → the lore-result struct
+- 'lore-key → stable key
+** Actions:
+- RET open selected result:
+  - file: open file and jump to line/col or pos
+  - url: browse-url
+  - doc/info/man: open in info/man or a help window
+  - symbol: describe function/variable when possible
+- v preview content/snippet
+- i insert text into the other window/buffer
+- c copy a useful reference (path/url/(manual)node/page/symbol)
+- a export to Context Navigator (if available)
+- r refine, g refresh, t transient (if installed), n/p navigation, q quit
+
+** Rendering:
+- Relative paths if inside project (fallback to abbreviated absolute path)
+- Keyword highlighting is optional (lore-render-highlight-keywords)
+
+- Context Navigator integration (optional)
+Soft integration: if Context Navigator is not installed, export is a no-op with a friendly message.
+
+- Convert lore-result to Context Navigator item:
+  #+begin_src elisp
+  (lore-result->cn-item res) ;; → alist (file/url/selection/doc)
+  #+end_src
+- Export selected items from the Lore view:
+  #+begin_src elisp
+  (lore-export-to-context RESULTS) ;; interactive from view with key =a'
+  #+end_src
+
+* Privacy and network policy
+- Web getters are disabled by default
+- Before sending keywords to the network, a confirmation is requested unless disabled:
+  - lore-web-*-confirm-privacy, using lore-web-confirm-function (default: yes-or-no-p)
+- Endpoints are configurable (proxy or self-hosted), with timeouts
+
+* Troubleshooting
+- “0 results” for man/info: ensure =man= and =info= are available in PATH
+- Grep returns nothing:
+  - Check =lore-grep-program= (ripgrep required)
+  - Scope is =project= by default; global scope may search from =default-directory=
+- Spinner spins forever:
+  - Some external tools may hang; press “g” to refresh or restart with different scope/targets
+- Cached but stale results:
+  - Adjust TTL: lore-cache-ttl or disable cache temporarily (lore-cache-enabled)
+- Web getters return error:
+  - Ensure endpoints/timeouts are set, and confirm privacy prompt
+
+* Development and testing
+- Run all tests:
+  #+begin_src shell
+  emacs -Q --batch -L lisp -l test/ert-runner.el
+  #+end_src
+- With Nix:
+  - dev shell: =nix develop=
+  - tests: =nix run .#tests=
+- In batch CI environments:
+  - Logging is redirected away from read-only *Messages*
+  - ert-runner.el loads the umbrella and all tests
+
+** Test coverage (highlights):
+- Parsing: keywords, targets, inline flags, tag filters, case preservation
+- Render: basic layout, relative paths, keyword highlighting toggles
+- Getters: line parsers, async behavior with timers/sentinels, early exits
+- Core: registry, plan eligibility, cache hit path (sync/async), source weights ranking
+- View: copy and insert actions, preview/open logic
+- Integration: Context Navigator conversion for file/url/doc kinds
+- Events: pub/sub and debounce
+
+* Design principles
+- Minimal core, no mandatory LLM or network; add power as adapters/plugins
+- Clean data model and unified getter protocol
+- Async-first UI with streaming partials and cancel
+- Deterministic ranking + optional source biasing
+- Graceful degradation: if a backend/program is unavailable, fallback or early exit without errors
+
+* Roadmap (short)
+- Improve UX around multi-window rendering and insertion targeting
+- Optional embedding/index modules (sqlite/jsonl, hybrid retrieval) as separate packages
+- Additional web sources (StackOverflow, Dash/docsets) behind privacy confirmations
+- Remote/TRAMP policy flags
+
+* License
+- MIT (see file headers; SPDX: MIT)
+
+* Minimal snippet for init.el
+#+begin_src elisp
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'lore)
+
+;; Optional: tweak defaults
+(setq lore-log-level 'warn
+      lore-cache-enabled t
+      lore-parallel-limit 4)
+
+;; Optional: enable highlighting
+(setq lore-render-highlight-keywords t)
+
+;; Optional: enable a web getter (with your endpoint/proxy)
+;; (setq lore-web-devdocs-enabled t
+;;       lore-web-devdocs-endpoint "https://your-proxy.example/search")
+#+end_src
+
+Happy hacking. Lore.el is small on purpose: one request format, one result model, one registry, one buffer. Extend by adding getters, not by complicating the core.
