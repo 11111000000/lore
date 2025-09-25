@@ -49,11 +49,11 @@ Optional tools:
 
 * Quick start
 - M-x =lore-ask= → enter a query, for example: =elisp: map=
-- A buffer “*lore/” will show results. Async getters stream batches; a spinner shows progress.
+- A buffer “*lore*” will show results. Async getters stream batches; a spinner shows progress.
 - If a cached response is used, the header shows “(cached)”.
 
 Notes:
-- If you autoload =lore-ask= and see 0 items for =man:/info:=, ensure =man=/=info= are in PATH.
+- If you autoload =lore-ask= and see 0 items for =man:/info:=, ensure =man/info= are in PATH.
 - =lore-ask= autoloads built-in getters (elisp/grep/org/info/man); still recommended to require the umbrella in init:
   #+begin_src elisp
   (require 'lore)
@@ -183,7 +183,7 @@ Register your getter:
 
 * UI details
 ** Result buffer:
-“*lore/” with =lore-view-mode=. Lines carry result objects via text-properties:
+“*lore*” with =lore-view-mode=. Lines carry result objects via text-properties:
 - 'lore-result → the lore-result struct
 - 'lore-key → stable key
 ** Actions:
