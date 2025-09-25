@@ -102,38 +102,80 @@ Weights come from `lore-source-weights'."
        (t (push tok rest))))
     (list (nreverse rest) k scope)))
 
+(defun lore--parse-domain-token (tok)
+  "Parse TOK like \"dom?flags:rest\" into plist (:domain SYM :flags STR|nil :rest STR)."
+  (when (string-match "\\`\\([A-Za-z]+\\)\\(\\?[^:]+\\)?:\\(.*\\)\\'" tok)
+    (list :domain (intern (downcase (match-string 1 tok)))
+          :flags  (match-string 2 tok)  ;; includes leading ? when present
+          :rest   (match-string 3 tok))))
+
+(defun lore--parse-inline-flags (flagstr)
+  "Parse FLAGSTR like \"?k=10?scope=global\" into plist (:k INT :scope SYM).
+FLAGSTR may be nil; returns plist keys present only when parsed."
+  (let ((out nil))
+    (when (and flagstr (string-prefix-p "?" flagstr))
+      ;; split by ? and parse known flags
+      (dolist (frag (split-string (substring flagstr 1) "\\?" t))
+        (cond
+         ((string-match "\\`k=\\([0-9]+\\)\\'" frag)
+          (setq out (plist-put out :k (string-to-number (match-string 1 frag)))))
+         ((string-match "\\`scope=\\(project\\|global\\)\\'" frag)
+          (setq out (plist-put out :scope (intern (match-string 1 frag))))))))
+    out))
+
 (cl-defun lore-parse-query (s &key at-point)
-  "Parse query string S into request alist."
+  "Parse query string S into request alist.
+Supports inline flags embedded in domain tokens, e.g. \"man?scope=global: socket\"."
   (let* ((tokens (lore--tokenize (or s "")))
          (filters '())
          (targets '())
-         (keywords '()))
+         (keywords '())
+         (inline-k nil)
+         (inline-scope nil))
     (dolist (tok tokens)
-      (cond
-       ((string-match "\\`\\([a-zA-Z]+\\):\\(.*\\)" tok)
-        (let ((dom (intern (downcase (match-string 1 tok))))
-              (rest (match-string 2 tok)))
-          (push dom targets)
-          (unless (string-empty-p rest)
-            (push rest keywords))))
-       ((string-prefix-p "#" tok)
-        (push (cons :tag (substring tok 1)) filters))
-       (t (push tok keywords))))
+      (let ((domrec (lore--parse-domain-token tok)))
+        (cond
+         ;; Domain with optional inline flags: dom[?flags]:rest
+         (domrec
+          (let* ((dom (plist-get domrec :domain))
+                 (flags (plist-get domrec :flags))
+                 (rest (plist-get domrec :rest))
+                 (pfl (lore--parse-inline-flags flags)))
+            (push dom targets)
+            (unless (string-empty-p rest)
+              (push rest keywords))
+            (when (plist-member pfl :k) (setq inline-k (plist-get pfl :k)))
+            (when (plist-member pfl :scope) (setq inline-scope (plist-get pfl :scope)))))
+         ;; Plain domain prefix: dom:rest
+         ((string-match "\\`\\([a-zA-Z]+\\):\\(.*\\)" tok)
+          (let ((dom (intern (downcase (match-string 1 tok))))
+                (rest (match-string 2 tok)))
+            (push dom targets)
+            (unless (string-empty-p rest)
+              (push rest keywords))))
+         ;; Filters (#tag)
+         ((string-prefix-p "#" tok)
+          (push (cons :tag (substring tok 1)) filters))
+         ;; Regular keyword
+         (t (push tok keywords)))))
     ;; Preserve original token order
     (setq keywords (nreverse keywords)
           filters  (nreverse filters)
           targets  (nreverse targets))
     (cl-destructuring-bind (tokens2 k scope)
         (lore--parse-flags keywords)
-      (let ((req `((:query . ,s)
-                   (:keywords . ,(mapcar #'downcase tokens2))
-                   (:intent . search)
-                   (:filters . ,filters)
-                   (:targets . ,(delete-dups targets))
-                   (:scope . ,scope)
-                   (:max-k . ,k)
-                   (:at-point . ,at-point)
-                   (:ctx . nil))))
+      ;; Inline flags from domain tokens take precedence if provided
+      (let* ((final-k (or inline-k k))
+             (final-scope (or inline-scope scope))
+             (req `((:query . ,s)
+                    (:keywords . ,tokens2)
+                    (:intent . search)
+                    (:filters . ,filters)
+                    (:targets . ,(delete-dups targets))
+                    (:scope . ,final-scope)
+                    (:max-k . ,final-k)
+                    (:at-point . ,at-point)
+                    (:ctx . nil))))
         req))))
 
 (defun lore-normalize-request (req)
@@ -183,6 +225,10 @@ Weights come from `lore-source-weights'."
                                 :args (list :request req :topk topk)
                                 :cost (plist-get g :cost)))
                         sorted)))
+    (lore-log-info "plan: scope=%s targets=%S getters=%S"
+                   (alist-get :scope req)
+                   (alist-get :targets req)
+                   (mapcar (lambda (c) (plist-get c :name)) calls))
     (list :request req :getters calls)))
 
 ;; Running
@@ -200,36 +246,132 @@ Weights come from `lore-source-weights'."
 Respects cache; ignores async getters (those returning plist with :async)."
   (let* ((req (plist-get plan :request))
          (key (lore-request-fingerprint req))
-         (calls (plist-get plan :getters)))
+         (calls (plist-get plan :getters))
+         (cached (and (boundp 'lore-cache-enabled) lore-cache-enabled
+                      (lore-cache-get key))))
+    (if cached
+        (progn
+          (lore-log-info "cache hit (sync) %s" key)
+          cached)
+      (let* ((results (mapcar (lambda (c)
+                                (let ((fn (plist-get c :fn))
+                                      (args (plist-get c :args)))
+                                  (condition-case err
+                                      (let ((out (apply fn args)))
+                                        (cond
+                                         ;; Async marker: ignore in sync run
+                                         ((and (listp out) (plist-get out :async)) nil)
+                                         ;; List of results
+                                         ((listp out) out)
+                                         (t nil)))
+                                    (error
+                                     (lore-log-warn "getter %S error: %S"
+                                                    (plist-get c :name) err)
+                                     nil))))
+                              calls))
+             (flat (lore--aggregate results))
+             (uniq (lore-uniq flat))
+             (weighted (lore--apply-source-weights uniq))
+             (norm (lore-normalize-scores weighted))
+             (ranked (lore-rank norm)))
+        (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
+          (lore-cache-put key ranked lore-cache-ttl)
+          (lore-log-info "cache store (sync) %s (%d)" key (length ranked)))
+        ranked))))
+
+;; Async helpers
+
+(defun lore--trim-topk (results topk)
+  "Trim RESULTS to TOPK if needed."
+  (if (and topk (> (length results) topk))
+      (cl-subseq results 0 topk)
+    results))
+
+(defun lore--aggregate-into-state (state new topk)
+  "Aggregate NEW results into STATE and keep only TOPK ranked items."
+  (let* ((acc (append (plist-get state :acc) new))
+         (uniq (lore-uniq acc))
+         (weighted (lore--apply-source-weights uniq))
+         (norm (lore-normalize-scores weighted))
+         (ranked (lore-rank norm))
+         (trimmed (lore--trim-topk ranked topk)))
+    (plist-put state :acc trimmed)
+    trimmed))
+
+(defun lore--emit-partial (state token batch topk callback)
+  "Aggregate BATCH into STATE, publish partial events and call CALLBACK."
+  (when (and batch (listp batch))
+    (let ((res (lore--aggregate-into-state state batch topk)))
+      (lore-events-publish :lore-partial token res)
+      (when callback (funcall callback :partial res)))))
+
+(defun lore--finalize-async (state key start token callback)
+  "Finalize async run: cache, log, events, callback."
+  (let* ((res (or (plist-get state :acc) '()))
+         (dt  (- (float-time) start)))
+    (remhash token lore--active-tasks)
     (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
-      (when-let ((cached (lore-cache-get key)))
-        (lore-log-info "cache hit (sync) %s" key)
-        (cl-return-from lore-run cached)))
-    (let* ((results (mapcar (lambda (c)
-                              (let ((fn (plist-get c :fn))
-                                    (args (plist-get c :args)))
-                                (condition-case err
-                                    (let ((out (apply fn args)))
-                                      (cond
-                                       ;; Async marker: ignore in sync run
-                                       ((and (listp out) (plist-get out :async)) nil)
-                                       ;; List of results
-                                       ((listp out) out)
-                                       (t nil)))
-                                  (error
-                                   (lore-log-warn "getter %S error: %S"
-                                                  (plist-get c :name) err)
-                                   nil))))
-                            calls))
-           (flat (lore--aggregate results))
-           (uniq (lore-uniq flat))
-           (weighted (lore--apply-source-weights uniq))
-           (norm (lore-normalize-scores weighted))
-           (ranked (lore-rank norm)))
-      (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
-        (lore-cache-put key ranked lore-cache-ttl)
-        (lore-log-info "cache store (sync) %s (%d)" key (length ranked)))
-      ranked)))
+      (lore-cache-put key res lore-cache-ttl)
+      (lore-log-info "cache store (async) %s (%d)" key (length res)))
+    (lore-log-info "lore-run-async done in %.3fs (%d results)" dt (length res))
+    (lore-events-publish :lore-done token res)
+    (when callback (funcall callback :done res))))
+
+(defun lore--start-one-call (state call token topk key start callback)
+  "Start a single GETTER CALL, wiring emit/done into STATE."
+  (let* ((name (plist-get call :name))
+         (fn   (plist-get call :fn))
+         (args (plist-get call :args))
+         (emit (lambda (batch) (lore--emit-partial state token batch topk callback)))
+         (done (lambda (&optional err)
+                 (when err
+                   (lore-events-publish :lore-error token
+                                        (list :getter name
+                                              :error err)))
+                 (let ((p (max 0 (1- (plist-get state :pending)))))
+                   (plist-put state :pending p))
+                 ;; Start next from queue if any
+                 (when (plist-get state :queue)
+                   (lore--async-start-next state token topk key start callback))
+                 ;; If nothing pending and queue empty, finalize
+                 (when (and (zerop (plist-get state :pending))
+                            (null (plist-get state :queue)))
+                   (lore--finalize-async state key start token callback)))))
+    (lore-log-info "async: start getter=%S token=%s" name token)
+    (condition-case err
+        (let ((out (apply fn (append args (list :emit emit :done done)))))
+          (cond
+           ;; Async getter: register cancel and pending
+           ((and (listp out) (plist-get out :async))
+            (plist-put state :pending (1+ (plist-get state :pending)))
+            (let ((cancel (plist-get out :cancel)))
+              (when cancel
+                (plist-put state :cancels (cons cancel (plist-get state :cancels))))))
+           ;; Sync list: aggregate immediately
+           ((listp out)
+            (funcall emit out))))
+      (error
+       (lore-log-warn "getter %S error: %S" name err)))))
+
+(defun lore--async-start-next (state token topk key start callback)
+  "Pop next call from STATE queue and start it."
+  (let ((q (plist-get state :queue)))
+    (when q
+      (let ((next (car q)))
+        (plist-put state :queue (cdr q))
+        (lore--start-one-call state next token topk key start callback)))))
+
+(defun lore--maybe-return-cached-async (request key topk callback)
+  "If cache has RESULT for REQUEST KEY, emit events/callback and return t."
+  (let ((maybe-cached (and (boundp 'lore-cache-enabled) lore-cache-enabled
+                           (lore-cache-get key))))
+    (when maybe-cached
+      (let* ((res (lore--trim-topk maybe-cached topk)))
+        (lore-log-info "cache hit (async) %s" key)
+        (lore-events-publish :lore-query-start request nil)
+        (lore-events-publish :lore-done nil res)
+        (when callback (funcall callback :done res))
+        t))))
 
 (defun lore-run-async (plan callback)
   "Run PLAN asynchronously.
@@ -237,114 +379,34 @@ CALLBACK is called as (CALLBACK :partial RESULTS) and (CALLBACK :done RESULTS).
 If a cached result is available, it is returned immediately and no token is created."
   (let* ((request (plist-get plan :request))
          (topk (alist-get :max-k request))
-         (key (lore-request-fingerprint request))
-         (maybe-cached (and (boundp 'lore-cache-enabled) lore-cache-enabled
-                            (lore-cache-get key))))
-    (when maybe-cached
-      (let* ((res (if (and topk (> (length maybe-cached) topk))
-                      (cl-subseq maybe-cached 0 topk)
-                    maybe-cached)))
-        (lore-log-info "cache hit (async) %s" key)
-        (lore-events-publish :lore-query-start request nil)
-        (lore-events-publish :lore-done nil res)
-        (when callback (funcall callback :done res))
-        (cl-return-from lore-run-async nil)))
-    (let* ((token (lore--gen-token))
-           (calls (plist-get plan :getters))
-           (start (float-time))
-           (state (list :token token
-                        :request request
-                        :acc nil
-                        :pending 0
-                        :cancels nil
-                        :callback callback)))
-      (lore-events-publish :lore-query-start request token)
-      ;; Helper to merge, uniq, rank and deliver
-      (cl-labels
-          ((aggregate!
-             (new)
-             (let* ((acc (append (plist-get state :acc) new))
-                    (uniq (lore-uniq acc))
-                    (weighted (lore--apply-source-weights uniq))
-                    (norm (lore-normalize-scores weighted))
-                    (ranked (lore-rank norm))
-                    (trimmed (if (and topk (> (length ranked) topk))
-                                 (cl-subseq ranked 0 topk)
-                               ranked)))
-               (plist-put state :acc trimmed)
-               trimmed))
-           (emit!
-             (batch)
-             (when (and batch (listp batch))
-               (let ((res (aggregate! batch)))
-                 (lore-events-publish :lore-partial token res)
-                 (when callback (funcall callback :partial res)))))
-           (finalize!
-             ()
-             (let* ((res (or (plist-get state :acc) '()))
-                    (dt  (- (float-time) start)))
-               (remhash token lore--active-tasks)
-               (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
-                 (lore-cache-put key res lore-cache-ttl)
-                 (lore-log-info "cache store (async) %s (%d)" key (length res)))
-               (lore-log-info "lore-run-async done in %.3fs (%d results)" dt (length res))
-               (lore-events-publish :lore-done token res)
-               (when callback (funcall callback :done res)))))
+         (key (lore-request-fingerprint request)))
+    (if (lore--maybe-return-cached-async request key topk callback)
+        nil
+      (let* ((token (lore--gen-token))
+             (calls (plist-get plan :getters))
+             (start (float-time))
+             (state (list :token token
+                          :request request
+                          :acc nil
+                          :pending 0
+                          :cancels nil
+                          :callback callback)))
+        (lore-log-info "async: start token=%s getters=%d topk=%s" token (length calls) topk)
+        (lore-events-publish :lore-query-start request token)
         ;; Launch getters with parallel limit
         (let* ((queue (copy-sequence calls))
                (limit (max 1 (or lore-parallel-limit 1))))
           (plist-put state :pending 0)
           (plist-put state :queue queue)
-          (cl-labels
-              ((start-call!
-                 (call)
-                 (let* ((fn   (plist-get call :fn))
-                        (args (plist-get call :args))
-                        (emit (lambda (batch) (emit! batch)))
-                        (done (lambda (&optional err)
-                                (when err
-                                  (lore-events-publish :lore-error token
-                                                       (list :getter (plist-get call :name)
-                                                             :error err)))
-                                (let ((p (max 0 (1- (plist-get state :pending)))))
-                                  (plist-put state :pending p))
-                                ;; Start next from queue if any
-                                (when (plist-get state :queue)
-                                  (start-next!))
-                                ;; If nothing pending and queue empty, finalize
-                                (when (and (zerop (plist-get state :pending))
-                                           (null (plist-get state :queue)))
-                                  (finalize!)))))
-                   (condition-case err
-                       (let ((out (apply fn (append args (list :emit emit :done done)))))
-                         (cond
-                          ;; Async getter: register cancel and pending
-                          ((and (listp out) (plist-get out :async))
-                           (plist-put state :pending (1+ (plist-get state :pending)))
-                           (let ((cancel (plist-get out :cancel)))
-                             (when cancel
-                               (plist-put state :cancels (cons cancel (plist-get state :cancels))))))
-                          ;; Sync list: aggregate immediately
-                          ((listp out)
-                           (emit! out))))
-                     (error
-                      (lore-log-warn "getter %S error: %S" (plist-get call :name) err)))))
-               (start-next!
-                 ()
-                 (let ((q (plist-get state :queue)))
-                   (when q
-                     (let ((next (car q)))
-                       (plist-put state :queue (cdr q))
-                       (start-call! next))))))
-            ;; Kick off up to LIMIT calls
-            (dotimes (_i (min limit (length queue)))
-              (start-next!))))
+          ;; Kick off up to LIMIT calls
+          (dotimes (_i (min limit (length queue)))
+            (lore--async-start-next state token topk key start callback)))
         ;; Save state
         (puthash token state lore--active-tasks)
         ;; If no async pending and queue empty and nothing emitted yet, finalize immediately
         (when (and (zerop (plist-get state :pending))
                    (null (plist-get state :queue)))
-          (finalize!))
+          (lore--finalize-async state key start token callback))
         token))))
 
 (defun lore-cancel (token)

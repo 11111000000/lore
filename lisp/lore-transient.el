@@ -95,13 +95,35 @@
           ("d e" "elisp"   (lambda () (interactive) (lore-transient--toggle 'elisp)))
           ("d o" "org"     (lambda () (interactive) (lore-transient--toggle 'org)))
           ("d i" "info"    (lambda () (interactive) (lore-transient--toggle 'info)))
-          ("d m" "man"     (lambda () (interactive) (lore-transient--toggle 'man)))]
+          ("d m" "man"     (lambda () (interactive) (lore-transient--toggle 'man)))
+          ("d w" "web"     (lambda () (interactive) (lore-transient--toggle 'web)))
+          ("d D" "devdocs" (lambda () (interactive) (lore-transient--toggle 'devdocs)))
+          ("d M" "mdn"     (lambda () (interactive) (lore-transient--toggle 'mdn)))]
          ["Display"
           ("x h" "toggle highlight"
            (lambda ()
              (interactive)
              (setq lore-render-highlight-keywords (not lore-render-highlight-keywords))
              (message "Lore highlight %s" (if lore-render-highlight-keywords "on" "off"))))]
+         ["Web"
+          ("x d" "toggle DevDocs"
+           (lambda ()
+             (interactive)
+             (require 'lore-getter-web-devdocs nil t)
+             (if (boundp 'lore-web-devdocs-enabled)
+                 (progn
+                   (setq lore-web-devdocs-enabled (not lore-web-devdocs-enabled))
+                   (message "DevDocs %s" (if lore-web-devdocs-enabled "enabled" "disabled")))
+               (message "DevDocs getter not available"))))
+          ("x m" "toggle MDN"
+           (lambda ()
+             (interactive)
+             (require 'lore-getter-web-mdn nil t)
+             (if (boundp 'lore-web-mdn-enabled)
+                 (progn
+                   (setq lore-web-mdn-enabled (not lore-web-mdn-enabled))
+                   (message "MDN %s" (if lore-web-mdn-enabled "enabled" "disabled")))
+               (message "MDN getter not available"))))]
          ["Weights"
           ("w e" "bias elisp"
            (lambda ()

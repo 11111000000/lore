@@ -35,10 +35,30 @@ One of: nil, error, warn, info, debug."
            (lore--log-level->num lore-log-level))))
 
 (defun lore--log (level fmt &rest args)
-  "Core log function."
+  "Core log function. Robust in batch/noninteractive and read-only *Messages*."
   (when (lore--should-log-p level)
     (let ((msg (apply #'format fmt args)))
-      (message "[lore:%s] %s" level msg))))
+      (if noninteractive
+          ;; In batch ERT or noninteractive sessions, avoid touching *Messages* entirely.
+          (condition-case _err
+              (progn
+                (princ (format "[lore:%s] %s\n" level msg)))
+            (error nil))
+        ;; Interactive Emacs: try `message', fall back to direct buffer insert.
+        (condition-case _err
+            (message "[lore:%s] %s" level msg)
+          (error
+           ;; Fallback: append directly to *Messages* ignoring read-only.
+           (when-let ((buf (get-buffer "*Messages*")))
+             (with-current-buffer buf
+               (let ((inhibit-read-only t)
+                     (inhibit-modification-hooks t)
+                     (buffer-undo-list t))
+                 (condition-case _err2
+                     (progn
+                       (goto-char (point-max))
+                       (insert (format "[lore:%s] %s\n" level msg)))
+                   (error nil)))))))))))
 
 (defun lore-log-error (fmt &rest args)
   (apply #'lore--log 'error fmt args))

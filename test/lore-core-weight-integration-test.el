@@ -100,7 +100,8 @@
             (let ((titles (mapcar #'lore-result-title final)))
               (should (member "G1" titles))
               (should (member "E1" titles))
-              (should (< (cl-position "G1" titles) (cl-position "E1" titles))))))
+              (should (< (cl-position "G1" titles :test #'equal)
+                         (cl-position "E1" titles :test #'equal))))))
       (lore-unregister-getter name-e)
       (lore-unregister-getter name-g))))
 

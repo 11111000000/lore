@@ -17,6 +17,23 @@
 
 (defvar lore-view-buffer-name "*lore*")
 
+;; Ensure builtin getters are available even when only lore-view is autoloaded.
+(defun lore--ensure-getters-loaded ()
+  "Ensure built-in Lore getters are loaded/registered at least once."
+  (when (fboundp 'lore-getters)
+    (let* ((registered (mapcar (lambda (g) (plist-get g :name)) (lore-getters)))
+           (need (cl-remove-if (lambda (pair) (member (cdr pair) registered))
+                               '((lore-getter-elisp . elisp)
+                                 (lore-getter-grep  . grep)
+                                 (lore-getter-org   . org)
+                                 (lore-getter-info  . info)
+                                 (lore-getter-man   . man)))))
+      (dolist (pair need)
+        (require (car pair) nil t))
+      ;; Optional web getters (guarded by their own enable flags)
+      (require 'lore-getter-web-devdocs nil t)
+      (require 'lore-getter-web-mdn nil t))))
+
 (defvar lore-view-mode-map
   (let ((m (make-sparse-keymap)))
     (define-key m (kbd "q") #'quit-window)
@@ -93,6 +110,20 @@
   (let ((r (get-text-property (line-beginning-position) 'lore-result)))
     r))
 
+(defun lore-view--format-header (query n cached-p req)
+  "Format Lore header line using QUERY, count N, CACHED-P and REQ alist.
+REQ may contain :scope and :targets for display. Returns a string."
+  (let* ((scope (or (and (listp req) (alist-get :scope req)) 'project))
+         (targets (and (listp req) (alist-get :targets req)))
+         (doms (and targets
+                    (mapconcat (lambda (s) (symbol-name s)) targets ", ")))
+         (base (format "🧭 Lore: %s — %d result%s"
+                       query n (if (= n 1) "" "s")))
+         (extra (format " [scope: %s%s]"
+                        scope
+                        (if doms (format "; domains: %s" doms) ""))))
+    (concat base extra (if cached-p " (cached)" ""))))
+
 ;;;###autoload
 (defun lore-ask (query)
   "Ask Lore with QUERY and display results."
@@ -111,6 +142,8 @@
     (pop-to-buffer buf)
     ;; Initial header
     (lore-render-apply-to-buffer buf (list (format "⏳ Lore: %s" query) "" "Searching..."))
+    ;; Make sure builtin getters are present even if only lore-view was autoloaded.
+    (lore--ensure-getters-loaded)
     (let* ((plan (lore-plan req))
            (token
             (lore-run-async plan
@@ -139,9 +172,7 @@
                                            lore--last-token nil)
                                      (lore--spinner-stop)
                                      (let* ((n (length payload))
-                                            (hdr (format "🧭 Lore: %s — %d result%s%s"
-                                                         query n (if (= n 1) "" "s")
-                                                         (if cached-p " (cached)" ""))))
+                                            (hdr (lore-view--format-header query n cached-p lore--last-request)))
                                        (lore-render-apply-to-buffer
                                         buf
                                         (append

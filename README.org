@@ -19,6 +19,9 @@ Lore.el — лёгкий модульный фреймворк для поиск
 - org — заголовки Org-файлов
 - info — GNU Info (через info --apropos)
 - man — UNIX man -k (apropos)
+Опциональные веб-геттеры (выключены по умолчанию):
+- web-devdocs — поиск по DevDocs-подобному API (нужен прокси/endpoint)
+- web-mdn — поиск по MDN API (нужен endpoint)
 
 * Установка
 Использование straight/quelpa/MELPA — как обычного пакета Emacs Lisp.
@@ -47,6 +50,13 @@ Lore.el — лёгкий модульный фреймворк для поиск
 - M-x =lore-ask= → введите запрос, например: =elisp: map=
 - В буфере “*lore/” появятся результаты. Асинхронные геттеры стримят результаты, спиннер крутится.
 - Мгновенная выдача с пометкой (cached) — когда запрос взят из кеша.
+
+Примечание:
+- Если вы вызываете =lore-ask= из автозагрузки и видите 0 результатов для =man:/info:=, убедитесь, что в системе доступны =man=/=info= в PATH.
+- Начиная с этой версии, =lore-ask= автоматически подгружает встроенные геттеры (elisp/grep/org/info/man), однако по‑прежнему рекомендуется загрузить «зонтик» в init:
+  #+begin_src elisp
+  (require 'lore)
+  #+end_src
 
 Быстрые действия:
 - r: уточнить запрос (refine)
@@ -101,6 +111,10 @@ Org:
 Info/Man:
 - lore-info-program, lore-info-extra-args
 - lore-man-program, lore-man-extra-args
+
+Web (опционально, по умолчанию выключены):
+- lore-web-devdocs-enabled, lore-web-devdocs-endpoint, lore-web-devdocs-timeout, lore-web-devdocs-confirm-privacy
+- lore-web-mdn-enabled, lore-web-mdn-endpoint, lore-web-mdn-timeout, lore-web-mdn-confirm-privacy
 
 * Как это работает внутри
 Пайплайн:

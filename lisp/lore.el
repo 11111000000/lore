@@ -24,6 +24,9 @@
 (require 'lore-getter-org)
 (require 'lore-getter-info)
 (require 'lore-getter-man)
+;; Optional web getters (disabled by default)
+(require 'lore-getter-web-devdocs nil t)
+(require 'lore-getter-web-mdn nil t)
 
 ;;;###autoload
 (defun lore-version ()
