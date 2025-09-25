@@ -7,6 +7,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'gv)
 (require 'subr-x)
 (require 'lore-view)
 (require 'lore-core)

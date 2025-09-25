@@ -35,6 +35,9 @@
 (defvar lore-getter-man--state (make-hash-table :test #'eq)
   "Internal state: process → plist(:buf BUF :emit FN :done FN :limit INT :emitted INT :acc LIST).")
 
+(defvar lore-getter-man--tok 0
+  "Monotonic token counter for man getter.")
+
 (defun lore-getter-man--pattern (keywords)
   "Build pattern for man -k from KEYWORDS."
   (cond
@@ -139,9 +142,9 @@ Expected forms:
 ;;;###autoload
 (cl-defun lore-getter-man-run (&key request topk emit done)
   "Run man -k getter with REQUEST and TOPK. Stream via EMIT, finalize via DONE."
-  (let* ((keywords (or (plist-get request :keywords)
-                       (and (plist-get request :query)
-                            (list (plist-get request :query)))))
+  (let* ((keywords (or (alist-get :keywords request)
+                       (let ((q (alist-get :query request)))
+                         (and q (list q)))))
          (pattern (lore-getter-man--pattern keywords)))
     (cond
      ((not (executable-find lore-man-program))
@@ -167,8 +170,11 @@ Expected forms:
                             :emitted 0
                             :acc nil)
                  lore-getter-man--state)
+        ;; Handle race where process may exit before state is installed.
+        (unless (process-live-p proc)
+          (lore-getter-man--sentinel proc "finished"))
         (list :async t
-              :token (format "man-%s" (cl-incf (eval-when-compile (defvar lore-getter-man--tok 0) lore-getter-man--tok)))
+              :token (format "man-%s" (cl-incf lore-getter-man--tok))
               :cancel (lambda ()
                         (when (process-live-p proc)
                           (delete-process proc)))))))))

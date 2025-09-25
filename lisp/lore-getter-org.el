@@ -41,17 +41,52 @@ When nil, uses `org-directory' if set, otherwise `default-directory'."
   :type 'regexp
   :group 'lore-getter-org)
 
-(defun lore-getter-org--roots ()
-  "Resolve roots list."
-  (or lore-org-roots
-      (and (boundp 'org-directory) (list (expand-file-name org-directory)))
-      (list default-directory)))
+(defcustom lore-org-exclude-regexps '("\\.git/" "/node_modules/" "/\\.cache/")
+  "List of regexps to exclude Org files by their absolute path."
+  :type '(repeat regexp)
+  :group 'lore-getter-org)
 
-(defun lore-getter-org--collect-files ()
-  "Collect Org files under roots."
-  (cl-loop for root in (lore-getter-org--roots)
-           when (file-directory-p root)
-           nconc (directory-files-recursively root lore-org-file-glob)))
+(defcustom lore-org-max-file-size (* 2 1024 1024)
+  "Maximum size (in bytes) of Org files to scan. Larger files are skipped."
+  :type 'integer
+  :group 'lore-getter-org)
+
+(defun lore-getter-org--project-root ()
+  "Return project root directory, or nil if not in a project."
+  (cond
+   ((fboundp 'project-current)
+    (when-let ((pr (project-current nil)))
+      (car (project-roots pr))))
+   ((fboundp 'vc-root-dir)
+    (vc-root-dir))
+   (t nil)))
+
+(defun lore-getter-org--roots (request)
+  "Resolve roots list based on REQUEST scope and configured roots.
+If scope is 'project, prefer project root when available."
+  (let* ((scope (alist-get :scope request))
+         (proj  (and (eq scope 'project) (lore-getter-org--project-root))))
+    (cond
+     (proj (list proj))
+     (lore-org-roots lore-org-roots)
+     ((and (boundp 'org-directory) org-directory)
+      (list (expand-file-name org-directory)))
+     (t (list default-directory)))))
+
+(defun lore-getter-org--collect-files (request)
+  "Collect Org files under roots derived from REQUEST.
+Applies `lore-org-exclude-regexps' and `lore-org-max-file-size' filters."
+  (let* ((roots (lore-getter-org--roots request))
+         (files (cl-loop for root in roots
+                         when (file-directory-p root)
+                         nconc (directory-files-recursively root lore-org-file-glob))))
+    (cl-loop for f in files
+             for abs = (expand-file-name f)
+             for attrs = (ignore-errors (file-attributes abs))
+             for size = (and attrs (file-attribute-size attrs))
+             unless (or (cl-some (lambda (rx) (string-match-p rx abs)) lore-org-exclude-regexps)
+                        (and size lore-org-max-file-size (> size lore-org-max-file-size)))
+             collect abs)))
 
 (defun lore-getter-org--headline->result (file head score)
   "Convert HEAD in FILE to lore-result with SCORE."
@@ -103,12 +138,12 @@ When nil, uses `org-directory' if set, otherwise `default-directory'."
   "Scan org roots and return matching headlines as list of lore-result.
 REQUEST is an alist with :keywords (list<string>) and :filters (alist)."
   (ignore emit done) ;; synchronous getter
-  (let* ((keywords (or (plist-get request :keywords) '()))
-         (filters  (plist-get request :filters))
-         (tag      (plist-get filters :tag))
+  (let* ((keywords (or (alist-get :keywords request) '()))
+         (filters  (alist-get :filters request))
+         (tag      (and (listp filters) (alist-get :tag filters)))
          (limit    (or topk 20))
          (results  '()))
-    (dolist (file (lore-getter-org--collect-files))
+    (dolist (file (lore-getter-org--collect-files request))
       (with-temp-buffer
         (insert-file-contents file)
         (delay-mode-hooks (org-mode))

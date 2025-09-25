@@ -16,15 +16,34 @@
         packages = with pkgs; [ emacs ripgrep ];
         shellHook = ''
           echo "Run tests: emacs -Q --batch -L lisp -l test/ert-runner.el"
+          echo "Or via flake app: nix run .#tests"
         '';
       };
     });
+
+    # nix run .#tests
+    apps = forAllSystems (pkgs:
+      let
+        emacs = pkgs.emacs;
+        drv = pkgs.writeShellApplication {
+          name = "lore-tests";
+          # rg may be used by tests/getters
+          runtimeInputs = [ pkgs.ripgrep ];
+          text = ''
+            set -euo pipefail
+            exec ${emacs}/bin/emacs -Q --batch -L ${./lisp} -l ${./test}/ert-runner.el
+          '';
+        };
+      in rec {
+        tests = { type = "app"; program = "${drv}/bin/lore-tests"; };
+        default = tests;
+      });
 
     checks = forAllSystems (pkgs: {
       ert = pkgs.runCommand "lore-ert" { buildInputs = [ pkgs.emacs pkgs.ripgrep ]; } ''
         cp -r ${./lisp} ./lisp
         cp -r ${./test} ./test
-        EMACS="${pkgs.emacs}/bin/emacs" $EMACS -Q --batch -L lisp -l test/ert-runner.el
+        ${pkgs.emacs}/bin/emacs -Q --batch -L lisp -l test/ert-runner.el
         touch $out
       '';
     });

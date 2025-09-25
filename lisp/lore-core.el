@@ -92,6 +92,10 @@
        ((string-prefix-p "#" tok)
         (push (cons :tag (substring tok 1)) filters))
        (t (push tok keywords))))
+    ;; Preserve original token order
+    (setq keywords (nreverse keywords)
+          filters  (nreverse filters)
+          targets  (nreverse targets))
     (cl-destructuring-bind (tokens2 k scope)
         (lore--parse-flags keywords)
       (let ((req `((:query . ,s)
@@ -128,8 +132,13 @@
          (targets (alist-get :targets req))
          (scope   (alist-get :scope req)))
     (and
-     ;; Scope match if declared
-     (or (null scopes) (memq scope scopes))
+     ;; Scope match:
+     ;; - no scopes declared => eligible
+     ;; - exact scope match => eligible
+     ;; - global-only getter is also OK for project requests
+     (or (null scopes)
+         (memq scope scopes)
+         (and (eq scope 'project) (memq 'global scopes)))
      ;; Domains match if targets provided
      (or (null targets)
          (and domains (cl-some (lambda (tgt) (memq tgt domains)) targets))))))

@@ -36,7 +36,7 @@
   :group 'lore-getter-grep)
 
 (defcustom lore-grep-extra-args
-  '("--smart-case" "--line-number" "--column" "--color=never" "--no-heading")
+  '("--smart-case" "--line-number" "--column" "--color=never" "--no-heading" "--no-config")
   "Extra arguments for ripgrep."
   :type '(repeat string)
   :group 'lore-getter-grep)
@@ -169,6 +169,26 @@
     (when st
       (unwind-protect
           (progn
+            ;; Cancel timeout timer if any
+            (when-let ((tm (plist-get st :timer)))
+              (when (timerp tm) (cancel-timer tm)))
+            ;; Flush any trailing partial line (no newline at EOF)
+            (let* ((buf (plist-get st :buf))
+                   (limit (or (plist-get st :limit) most-positive-fixnum))
+                   (emitted (or (plist-get st :emitted) 0))
+                   (acc (plist-get st :acc)))
+              (when (buffer-live-p buf)
+                (with-current-buffer buf
+                  (let ((left (string-trim-right (buffer-substring-no-properties (point-min) (point-max)))))
+                    (when (and (> (length left) 0))
+                      (when-let ((data (lore-getter-grep--parse-line left)))
+                        (pcase-let ((`(,path ,ln ,col ,text) data))
+                          (let ((score (max 0.0 (- 1.0 (* 0.03 emitted)))))
+                            (push (lore-getter-grep--make-result path ln col text score) acc)
+                            (setq emitted (1+ emitted)))))))))
+              (plist-put st :emitted emitted)
+              (plist-put st :acc acc)
+              (puthash proc st lore-getter-grep--state))
             (lore-getter-grep--emit-batch proc)
             (when (functionp (plist-get st :done))
               (funcall (plist-get st :done) nil)))
@@ -182,13 +202,13 @@
 TOPK caps number of items. EMIT receives partial lists. DONE called at end.
 
 Returns list of results (sync) or plist (:async t :token TOKEN :cancel FN)."
-  (let* ((keywords (or (plist-get request :keywords)
-                       (and (plist-get request :query)
-                            (list (plist-get request :query)))))
-         (root (or (plist-get request :project-root)
+  (let* ((keywords (or (alist-get :keywords request)
+                       (let ((q (alist-get :query request)))
+                         (and q (list q)))))
+         (root (or (alist-get :project-root request)
                    (lore-getter-grep--project-root)))
          ;; Respect scope: only run in 'project scope.
-         (scope (plist-get request :scope))
+         (scope (alist-get :scope request))
          (default-directory (or root default-directory)))
     (cond
      ((not (executable-find lore-grep-program))
@@ -199,22 +219,36 @@ Returns list of results (sync) or plist (:async t :token TOKEN :cancel FN)."
       nil)
      (t
       (let* ((token (cl-incf lore-getter-grep--counter))
-             (proc (make-process
-                    :name (format "lore-rg-%d" token)
-                    :buffer (generate-new-buffer " *lore-rg*")
-                    :noquery t
-                    :command (cons lore-grep-program
-                                   (lore-getter-grep--build-args keywords topk))
-                    :connection-type 'pipe
-                    :filter #'lore-getter-grep--filter
-                    :sentinel #'lore-getter-grep--sentinel)))
-        (puthash proc (list :buf (process-buffer proc)
+             (buf (generate-new-buffer " *lore-rg*"))
+             (workdir (or (alist-get :project-root request) default-directory))
+             (proc (let ((default-directory workdir))
+                     (make-process
+                      :name (format "lore-rg-%d" token)
+                      :buffer buf
+                      :noquery t
+                      :command (cons lore-grep-program
+                                     (append (lore-getter-grep--build-args keywords topk)
+                                             (list ".")))
+                      :connection-type 'pipe
+                      :filter #'lore-getter-grep--filter
+                      :sentinel #'lore-getter-grep--sentinel)))
+             ;; Fallback timeout to ensure finalization even if sentinel doesn't fire promptly
+             (timeout-timer (run-at-time 4.5 nil
+                                         (lambda ()
+                                           (when (gethash proc lore-getter-grep--state)
+                                             (when (process-live-p proc)
+                                               (delete-process proc)))))))
+        (puthash proc (list :buf buf
                             :emit emit
                             :done done
                             :limit (or topk most-positive-fixnum)
                             :emitted 0
-                            :acc nil)
+                            :acc nil
+                            :timer timeout-timer)
                  lore-getter-grep--state)
+        ;; Handle race where process may exit before state is installed.
+        (unless (process-live-p proc)
+          (lore-getter-grep--sentinel proc "finished"))
         (list :async t
               :token token
               :cancel (lambda ()

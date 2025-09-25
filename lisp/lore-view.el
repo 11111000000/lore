@@ -25,6 +25,7 @@
     (define-key m (kbd "t") #'lore-transient)
     (define-key m (kbd "a") #'lore-export-to-context)
     (define-key m (kbd "c") #'lore-copy-result)
+    (define-key m (kbd "i") #'lore-insert-at-point)
     (define-key m (kbd "RET") #'lore-open)
     (define-key m (kbd "v") #'lore-preview)
     (define-key m (kbd "n") #'next-line)
@@ -270,6 +271,32 @@ If a region is active, export all results in the region; otherwise, current line
                      (lore-result-snippet r))))))
       (kill-new text)
       (message "Copied: %s" text))))
+
+(defun lore-view--pick-target-window ()
+  "Pick a window to insert into (not the Lore view). Return window or nil."
+  (cl-loop for w in (window-list)
+           for b = (window-buffer w)
+           unless (string= (buffer-name b) lore-view-buffer-name)
+           return w))
+
+;;;###autoload
+(defun lore-insert-at-point ()
+  "Insert selected result's content/snippet/title at point in another window/buffer.
+If a non-Lore window exists, insert there; otherwise error."
+  (interactive)
+  (let ((r (lore--current-result)))
+    (unless r (user-error "No result at point"))
+    (let ((text (or (lore-result-content r)
+                    (lore-result-snippet r)
+                    (lore-result-title r))))
+      (unless (and text (stringp text))
+        (user-error "No text content available for insertion"))
+      (let ((win (lore-view--pick-target-window)))
+        (unless (window-live-p win)
+          (user-error "No target window to insert into; split window and try again"))
+        (with-selected-window win
+          (insert text)
+          (message "Inserted %d chars" (length text)))))))
 
 (provide 'lore-view)
 ;;; lore-view.el ends here

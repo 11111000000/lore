@@ -1,0 +1,28 @@
+# Compiled elisp files
+*.elc
+
+# Nix/flake artifacts
+/result
+/flake.lock
+
+# Emacs local/auto save/backup files
+*~
+.#*
+*.autosave
+
+# Test/coverage/artifact outputs
+/test-outputs/
+/coverage/
+
+# OS/editor temp files
+.DS_Store
+*.swp
+*.swo
+
+# Project-specific
+/env
+/.direnv/
+/.lore-cache/
+
+...*
+.magptrc
