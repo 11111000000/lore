@@ -11,6 +11,7 @@
 (require 'subr-x)
 (require 'lore-view)
 (require 'lore-core)
+(require 'lore-render)
 
 (defvar-local lore-tx-scope 'project)
 (defvar-local lore-tx-k 20)
@@ -78,8 +79,10 @@
       (transient-define-prefix lore-transient ()
         "Lore controls"
         [:description (lambda () (lore-transient--init-state)
-                        (format "Scope: %s   Top-K: %d"
-                                lore-tx-scope lore-tx-k))]
+                        (format "Scope: %s   Top-K: %d   Highlight: %s"
+                                lore-tx-scope
+                                lore-tx-k
+                                (if lore-render-highlight-keywords "on" "off")))]
         [["Scope"
           ("s p" "project" (lambda () (interactive) (setq lore-tx-scope 'project)))
           ("s g" "global"  (lambda () (interactive) (setq lore-tx-scope 'global)))]
@@ -92,7 +95,29 @@
           ("d e" "elisp"   (lambda () (interactive) (lore-transient--toggle 'elisp)))
           ("d o" "org"     (lambda () (interactive) (lore-transient--toggle 'org)))
           ("d i" "info"    (lambda () (interactive) (lore-transient--toggle 'info)))
-          ("d m" "man"     (lambda () (interactive) (lore-transient--toggle 'man)))]]
+          ("d m" "man"     (lambda () (interactive) (lore-transient--toggle 'man)))]
+         ["Display"
+          ("x h" "toggle highlight"
+           (lambda ()
+             (interactive)
+             (setq lore-render-highlight-keywords (not lore-render-highlight-keywords))
+             (message "Lore highlight %s" (if lore-render-highlight-keywords "on" "off"))))]
+         ["Weights"
+          ("w e" "bias elisp"
+           (lambda ()
+             (interactive)
+             (setq lore-source-weights '((elisp . 1.5) (grep . 1.0) (org . 1.0) (info . 1.0) (man . 1.0)))
+             (message "Lore weights: bias elisp")))
+          ("w p" "bias project"
+           (lambda ()
+             (interactive)
+             (setq lore-source-weights '((elisp . 1.0) (grep . 1.6) (org . 1.1) (info . 1.0) (man . 1.0)))
+             (message "Lore weights: bias project/grep")))
+          ("w r" "reset"
+           (lambda ()
+             (interactive)
+             (setq lore-source-weights '((elisp . 1.0) (grep . 1.0) (org . 1.0) (info . 1.0) (man . 1.0)))
+             (message "Lore weights reset")))]]
         [["Actions"
           ("RET" "Run" lore-transient-run)
           ("C-c C-c" "Run" lore-transient-run)

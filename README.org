@@ -1,0 +1,126 @@
+#+title: Lore.el — универсальный поиск и RAG в Emacs
+#+author: az
+#+startup: overview
+#+property: header-args :results none
+
+* Что это
+Lore.el — лёгкий модульный фреймворк для поиска и агрегирования знаний в Emacs:
+разобрать запрос → выбрать источники (геттеры) → извлечь → объединить → ранжировать → показать.
+
+- Минимальное ядро, чистые функции, расширяемость адаптерами
+- Поддержка синхронных и асинхронных источников, потоковые partial-результаты
+- Кэширование запросов (TTL), отмена, события
+- Интеграция с Context Navigator (мягкая)
+- Тесты (ERT) и reproducible-окружение через Nix flake
+
+Встроенные геттеры:
+- elisp — поиск символов Emacs Lisp (apropos)
+- project (rg) — ripgrep по проекту/каталогу
+- org — заголовки Org-файлов
+- info — GNU Info (через info --apropos)
+- man — UNIX man -k (apropos)
+
+* Установка
+Использование straight/quelpa/MELPA — как обычного пакета Emacs Lisp.
+Для ручной установки:
+- положите каталог =lisp/= в =load-path=
+- загрузите зонтик:
+  #+begin_src elisp
+  (require 'lore)
+  #+end_src
+
+Для dev-окружения через Nix:
+- зайти в оболочку: =nix develop=
+- запустить тесты:
+  #+begin_src shell
+  emacs -Q --batch -L lisp -l test/ert-runner.el
+  #+end_src
+- или: =nix run .#tests=
+
+Зависимости:
+- ripgrep (rg) для project-геттера (опционально)
+- info/man в PATH для info/man-геттеров (опционально)
+- transient для меню (опционально)
+- Context Navigator для экспорта в контекст (опционально)
+
+* Быстрый старт
+- M-x =lore-ask= → введите запрос, например: =elisp: map=
+- В буфере “*lore/” появятся результаты. Асинхронные геттеры стримят результаты, спиннер крутится.
+- Мгновенная выдача с пометкой (cached) — когда запрос взят из кеша.
+
+Быстрые действия:
+- r: уточнить запрос (refine)
+- g: перезапустить (refresh)
+- t: меню transient (если установлен)
+- RET: открыть результат
+- v: предпросмотр
+- c: скопировать ссылку/идентификатор
+- i: вставить текст результата в другое окно/буфер
+- a: экспорт в Context Navigator (если доступен)
+- n/p: навигация, q: закрыть
+
+* Синтаксис запросов
+- Ключевые слова — обычные слова: ~json encode~
+- Домены (префиксы):
+  - ~elisp:~, ~project:~, ~org:~, ~info:~, ~man:~
+  - можно смешивать: ~elisp: map project: map~
+- Флаги:
+  - ~?k=N~ — верхний предел результатов (Top‑K)
+  - ~?scope=project|global~ — область поиска (по умолчанию project)
+- Теги (для org): ~#tag~ (фильтр по заголовкам)
+- Примеры:
+  - ~elisp: completion table~
+  - ~project: json encode ?k=100~
+  - ~org: план #work ?scope=global~
+  - ~info: buffers~
+  - ~man: socket~
+
+* Настройка
+Основные переменные (M-x customize-group RET lore):
+- lore-max-k — дефолтный Top‑K
+- lore-default-scope — ~project|global~
+- lore-cache-enabled, lore-cache-ttl — кеш запросов
+- lore-parallel-limit — степень параллельности асинхронных геттеров
+- lore-source-weights — веса источников в ранжировании (alist: (elisp . 1.0) …)
+- lore-log-level — ~nil|error|warn|info|debug~
+
+Рендер (M-x customize-group RET lore-render):
+- lore-render-snippet-width, lore-render-location-width
+- lore-render-highlight-keywords, lore-render-highlight-face
+
+Grep:
+- lore-grep-program, lore-grep-extra-args
+- lore-grep-ignore-globs
+- lore-grep-max-count-factor
+
+Org:
+- lore-org-roots, lore-org-file-glob
+- lore-org-exclude-regexps
+- lore-org-max-file-size
+
+Info/Man:
+- lore-info-program, lore-info-extra-args
+- lore-man-program, lore-man-extra-args
+
+* Как это работает внутри
+Пайплайн:
+1) Парсинг (lore-parse-query): keywords/targets/flags/tags
+2) План (lore-plan): выбор геттеров по capabilities/targets/scope
+3) Запуск (lore-run / lore-run-async): асинхронные геттеры в параллели (с лимитом), partial-стриминг, отмена
+4) Слияние/дедуп/ранжирование (0..1, сортировка по score→title)
+5) Кеширование: по отпечатку запроса (TTL)
+6) Рендер (lore-render-lines): компактные строки с подсветкой keywords
+7) UI (lore-view): спиннер, дебаунс partial-рендера, действия по клавишам
+
+События:
+- :lore-query-start, :lore-partial, :lore-done, :lore-error, :lore-cancel
+
+* Расширение: свой геттер
+Регистрация:
+#+begin_src elisp
+(lore-register-getter
+ 'my-source
+ :capabilities '(:domains (web) :scope (global) :kinds (doc) :match (keyword))
+ :fn #'my-getter-run
+ :cost 0.7
+ :batch-p t) ; если асинхронный и может выдавать partial

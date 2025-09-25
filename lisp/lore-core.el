@@ -31,6 +31,33 @@
   "Max parallel async getters."
   :type 'integer :group 'lore-core)
 
+(defcustom lore-source-weights
+  '((elisp . 1.0)
+    (grep  . 1.0)
+    (org   . 1.0)
+    (info  . 1.0)
+    (man   . 1.0))
+  "Weights to multiply raw scores by source before normalization.
+Alist of (SOURCE . WEIGHT). Unknown sources default to 1.0."
+  :type '(alist :key-type symbol :value-type number)
+  :group 'lore-core)
+
+(defun lore--apply-source-weights (results)
+  "Return a new list of RESULTS with score adjusted by source weights.
+Weights come from `lore-source-weights'."
+  (let ((tbl (let ((h (make-hash-table :test 'eq)))
+               (dolist (kv lore-source-weights)
+                 (puthash (car kv) (cdr kv) h))
+               h)))
+    (mapcar (lambda (r)
+              (let* ((src (lore-result-source r))
+                     (w   (or (and src (gethash src tbl)) 1.0))
+                     (nr  (copy-sequence r)))
+                (setf (lore-result-score nr)
+                      (* (or (lore-result-score r) 0.0) (float w)))
+                nr))
+            results)))
+
 ;; Getter registry
 
 (defvar lore--getters (make-hash-table :test 'eq)
@@ -196,7 +223,8 @@ Respects cache; ignores async getters (those returning plist with :async)."
                             calls))
            (flat (lore--aggregate results))
            (uniq (lore-uniq flat))
-           (norm (lore-normalize-scores uniq))
+           (weighted (lore--apply-source-weights uniq))
+           (norm (lore-normalize-scores weighted))
            (ranked (lore-rank norm)))
       (when (and (boundp 'lore-cache-enabled) lore-cache-enabled)
         (lore-cache-put key ranked lore-cache-ttl)
@@ -237,7 +265,8 @@ If a cached result is available, it is returned immediately and no token is crea
              (new)
              (let* ((acc (append (plist-get state :acc) new))
                     (uniq (lore-uniq acc))
-                    (norm (lore-normalize-scores uniq))
+                    (weighted (lore--apply-source-weights uniq))
+                    (norm (lore-normalize-scores weighted))
                     (ranked (lore-rank norm))
                     (trimmed (if (and topk (> (length ranked) topk))
                                  (cl-subseq ranked 0 topk)

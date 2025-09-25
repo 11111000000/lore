@@ -48,6 +48,20 @@
 (defvar-local lore--spinner-index 0)
 (defvar-local lore--spinner-timer nil)
 
+(defgroup lore-view nil
+  "UI options for Lore view."
+  :group 'lore)
+
+(defcustom lore-view-spinner-interval 0.2
+  "Spinner redraw interval in seconds during async retrieval."
+  :type 'number
+  :group 'lore-view)
+
+(defcustom lore-view-partial-debounce 0.12
+  "Debounce interval for partial result re-rendering."
+  :type 'number
+  :group 'lore-view)
+
 (defun lore--spinner-stop ()
   "Stop spinner timer if running."
   (when (timerp lore--spinner-timer)
@@ -61,7 +75,7 @@
   (let ((buf (current-buffer)))
     (setq lore--spinner-index 0
           lore--spinner-timer
-          (run-at-time 0 0.15
+          (run-at-time 0 lore-view-spinner-interval
                        (lambda ()
                          (when (buffer-live-p buf)
                            (with-current-buffer buf
@@ -69,7 +83,9 @@
                                (let* ((frame (nth (% lore--spinner-index (length lore--spinner-frames))
                                                   lore--spinner-frames))
                                       (header (format "%s Lore: %s" frame (or lore--last-query "")))
-                                      (lines (lore-render-lines (or lore--last-results '()) header)))
+                                      (lines (lore-render-lines (or lore--last-results '()) header
+                                                                (and lore--last-request
+                                                                     (alist-get :keywords lore--last-request)))))
                                  (cl-incf lore--spinner-index)
                                  (lore-render-apply-to-buffer buf lines))))))))))
 
@@ -103,8 +119,21 @@
                                 (let ((cached-p (null token)))
                                   (pcase event
                                     (:partial
-                                     ;; Update results only; spinner will re-render frequently.
-                                     (setq lore--last-results payload))
+                                     ;; Update results and schedule a debounced re-render to reduce flicker.
+                                     (setq lore--last-results payload)
+                                     (let ((buf buf) (query query))
+                                       (lore-events-debounce
+                                        :lore-view (list 'render token) lore-view-partial-debounce
+                                        (lambda ()
+                                          (when (buffer-live-p buf)
+                                            (with-current-buffer buf
+                                              (let* ((frame (nth (% lore--spinner-index (length lore--spinner-frames))
+                                                                 lore--spinner-frames))
+                                                     (hdr (format "%s Lore: %s" frame (or query "")))
+                                                     (lines (lore-render-lines (or lore--last-results '()) hdr
+                                                                               (and lore--last-request
+                                                                                    (alist-get :keywords lore--last-request)))))
+                                                (lore-render-apply-to-buffer buf lines))))))))
                                     (:done
                                      (setq lore--last-results payload
                                            lore--last-token nil)
@@ -116,9 +145,11 @@
                                        (lore-render-apply-to-buffer
                                         buf
                                         (append
-                                         (lore-render-lines payload hdr)
+                                         (lore-render-lines payload hdr
+                                                            (and lore--last-request
+                                                                 (alist-get :keywords lore--last-request)))
                                          (list ""
-                                               "q quit  g refresh  r refine  t transient  a export  c copy  RET open  v preview  n/p move"))))))))))))
+                                               "q quit  g refresh  r refine  t transient  a export  c copy  i insert  RET open  v preview  n/p move"))))))))))))
       (with-current-buffer buf
         (setq lore--last-token token))
       ;; Start spinner only if token is non-nil (not cached)

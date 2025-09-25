@@ -83,8 +83,9 @@
             (list pattern))))
 
 (defun lore-getter-grep--parse-line (line)
-  "Parse ripgrep LINE in form path:line:col:text."
-  (when (string-match "\\`\\([^:\n]+\\):\\([0-9]+\\):\\([0-9]+\\):\\(.*\\)\\'" line)
+  "Parse ripgrep LINE in form path:line:col:text.
+Supports Windows drive letters like C:\\path\\to\\file:line:col:text."
+  (when (string-match "\\`\\(\\(?:[a-zA-Z]:\\)?[^:\n]+\\):\\([0-9]+\\):\\([0-9]+\\):\\(.*\\)\\'" line)
     (let ((path (match-string 1 line))
           (ln   (string-to-number (match-string 2 line)))
           (col  (string-to-number (match-string 3 line)))

@@ -21,6 +21,16 @@
   :type 'integer
   :group 'lore-render)
 
+(defcustom lore-render-highlight-keywords t
+  "When non-nil, highlight query keywords in rendered lines."
+  :type 'boolean
+  :group 'lore-render)
+
+(defcustom lore-render-highlight-face 'match
+  "Face used to highlight keyword matches in rendered lines."
+  :type 'face
+  :group 'lore-render)
+
 (defun lore--truncate (s n)
   (if (and s (> (length s) n))
       (concat (substring s 0 (max 0 (- n 1))) "…")
@@ -37,8 +47,24 @@
         (file-relative-name abs (expand-file-name root))
       (abbreviate-file-name abs))))
 
-(defun lore-render-lines (results &optional header)
-  "Return list of propertized lines for RESULTS. Optional HEADER string."
+(defun lore-render--highlight (s keywords)
+  "Return S with face applied to occurrences of KEYWORDS (case-insensitive)."
+  (let ((case-fold-search t)
+        (face lore-render-highlight-face))
+    (when (and lore-render-highlight-keywords keywords)
+      (dolist (kw keywords)
+        (when (and (stringp kw) (> (length kw) 0))
+          (let ((re (regexp-quote kw))
+                (start 0))
+            (while (and (< start (length s))
+                        (string-match re s start))
+              (add-text-properties (match-beginning 0) (match-end 0) (list 'face face) s)
+              (setq start (match-end 0)))))))
+    s))
+
+(defun lore-render-lines (results &optional header keywords)
+  "Return list of propertized lines for RESULTS.
+Optional HEADER string. Optional KEYWORDS list for highlighting."
   (let ((items '()))
     (dolist (r results)
       (let* ((title (or (lore-result-title r) ""))
@@ -52,6 +78,7 @@
                     (format " <%s>" (lore--truncate (lore-result-url r) lore-render-location-width)))
                    (t "")))
              (line (format "%s — %s  [%s %s]%s" title snip src score loc)))
+        (setq line (lore-render--highlight line keywords))
         (push (propertize line
                           'lore-result r
                           'lore-key (lore-result-key r)
